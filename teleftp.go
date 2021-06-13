@@ -2,8 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"crypto/md5"
-	"encoding/hex"
 	"github.com/goftp/file-driver"
 	"github.com/goftp/server"
 	"github.com/joho/godotenv"
@@ -19,56 +17,7 @@ import (
 	"time"
 )
 
-var (
-	cache []string
-	agent *tb.Bot
-)
-
-func Contains(a []string, x string) bool {
-	for _, n := range a {
-		if x == n {
-			return true
-		}
-	}
-
-	return false
-}
-
-func Delete(a []string, x string) {
-	index := 0
-	for _, n := range a {
-		if x != n {
-			a[index] = n
-			index++
-		}
-	}
-
-	cache = a[:index]
-}
-
-func Sum(path string) (string, error) {
-	var res string
-	file, err := os.Open(path)
-	if err != nil {
-		return res, err
-	}
-
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-	}(file)
-
-	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return res, err
-	}
-
-	res = hex.EncodeToString(hash.Sum(nil)[:16])
-
-	return res, nil
-}
+var agent *tb.Bot
 
 func Zip(source, target string) error {
 	f, err := os.Create(target)
@@ -172,8 +121,7 @@ func IsEmpty(name string) (bool, error) {
 		}
 	}(f)
 
-	_, err = f.Readdirnames(1)
-	if err == io.EOF {
+	if _, err = f.Readdirnames(1); err == io.EOF {
 		return true, nil
 	}
 
@@ -206,56 +154,42 @@ func ftpHandler() {
 }
 
 func filesHandler() {
-	if _, err := os.Stat(os.Getenv("PATH_FILES")); os.IsNotExist(err) {
-		_ = os.Mkdir(os.Getenv("PATH_FILES"), os.ModeDir)
-	}
+	if files, err := ioutil.ReadDir(os.Getenv("PATH_FILES")); err == nil {
+		for _, f := range files {
+			fullPath := os.Getenv("PATH_FILES") + f.Name()
+			hash, _ := hashdir.Create(fullPath, "md5")
 
-	files, err := ioutil.ReadDir(os.Getenv("PATH_FILES"))
-	if err != nil {
-		log.Fatal(err)
-	}
+			if f.IsDir() {
+				log.Println("↓ |", f.Name(), f.Size(), "bytes")
 
-	for _, f := range files {
-		full := os.Getenv("PATH_FILES") + f.Name()
-		hash, _ := hashdir.Create(full, "md5")
-		//log.Println("hash", hash)
+				time.Sleep(5 * time.Minute)
 
-		time.Sleep(30 * time.Minute)
-
-		if f.IsDir() {
-			if is, err := IsEmpty(full); err != nil {
-				log.Fatal(err)
-			} else {
-				if is {
-					return
+				if e, err := IsEmpty(fullPath); err == nil {
+					if e {
+						return
+					}
+				} else {
+					log.Fatal(err)
 				}
-			}
 
-			newHash, _ := hashdir.Create(full, "md5")
-			//log.Println("newHash DIR", newHash)
-			if hash != newHash {
-				return
-			}
-
-			err := Zip(os.Getenv("PATH_FILES")+f.Name(), os.Getenv("PATH_FILES")+f.Name()+".zip")
-			if err != nil {
-				log.Fatal(err)
-			}
-		} else {
-			if !Contains(cache, hash) {
-				newHash, _ := hashdir.Create(full, "md5")
-				//log.Println("newHash File", newHash)
+				newHash, _ := hashdir.Create(fullPath, "md5")
 				if hash != newHash {
 					return
 				}
 
-				cache = append(cache, hash)
-
-				log.Println("↓ |", f.Name(), f.Size(), "bytes")
+				err := Zip(os.Getenv("PATH_FILES")+f.Name(), os.Getenv("PATH_FILES")+f.Name()+".zip")
+				if err != nil {
+					log.Fatal(err)
+				}
+			} else {
+				newHash, _ := hashdir.Create(fullPath, "md5")
+				if hash != newHash {
+					return
+				}
 
 				chat, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
 				_, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
-					File:     tb.FromDisk(full),
+					File:     tb.FromDisk(fullPath),
 					FileName: f.Name(),
 				})
 				if err != nil {
@@ -264,18 +198,22 @@ func filesHandler() {
 
 				log.Println("↑ |", f.Name(), f.Size(), "bytes")
 
-				if err := os.RemoveAll(full); err != nil {
+				if err := os.RemoveAll(fullPath); err != nil {
 					log.Fatal(err)
 				}
-
-				Delete(cache, hash)
 			}
 		}
+	} else {
+		log.Fatal(err)
 	}
 }
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	if _, err := os.Stat(os.Getenv("PATH_FILES")); os.IsNotExist(err) {
+		_ = os.Mkdir(os.Getenv("PATH_FILES"), os.ModeDir)
+	}
 
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("No \".env\" file found!")
