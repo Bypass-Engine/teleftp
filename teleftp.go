@@ -3,10 +3,10 @@ package main
 import (
 	"crypto/md5"
 	"encoding/hex"
-	bot "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/goftp/file-driver"
 	"github.com/goftp/server"
 	"github.com/joho/godotenv"
+	tb "gopkg.in/tucnak/telebot.v2"
 	"io"
 	"io/ioutil"
 	"log"
@@ -17,7 +17,7 @@ import (
 
 var (
 	cache []string
-	agent *bot.BotAPI
+	agent *tb.Bot
 )
 
 func Contains(a []string, x string) bool {
@@ -116,10 +116,12 @@ func filesHandler() {
 			log.Println("↓ |", f.Name(), f.Size(), "bytes")
 
 			chat, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
-			c := bot.NewDocumentUpload(int64(chat), full)
-			c.Caption = f.Name()
-			if _, err := agent.Send(c); err != nil {
-				log.Println(err)
+			_, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
+				File:     tb.FromDisk(full),
+				FileName: f.Name(),
+			})
+			if err != nil {
+				log.Fatal(err)
 			}
 
 			log.Println("↑ |", f.Name(), f.Size(), "bytes")
@@ -143,10 +145,15 @@ func main() {
 	go ftpHandler()
 
 	var err error
-	agent, err = bot.NewBotAPI(os.Getenv("TELEGRAM_TOKEN"))
-	if err != nil {
+	if agent, err = tb.NewBot(tb.Settings{
+		URL:    os.Getenv("TELEGRAM_URL"),
+		Token:  os.Getenv("TELEGRAM_TOKEN"),
+		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
+	}); err != nil {
 		log.Fatal(err)
 	}
+
+	go agent.Start()
 
 	for {
 		filesHandler()
