@@ -220,7 +220,7 @@ func filesHandler() {
 		hash, _ := hashdir.Create(full, "md5")
 		//log.Println("hash", hash)
 
-		time.Sleep(1 * time.Second)
+		time.Sleep(15 * time.Second)
 
 		if f.IsDir() {
 			if is, err := IsEmpty(full); err != nil {
