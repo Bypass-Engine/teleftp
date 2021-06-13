@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"crypto/md5"
 	"encoding/hex"
 	"github.com/goftp/file-driver"
@@ -11,7 +12,9 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -66,6 +69,95 @@ func Sum(path string) (string, error) {
 	return res, nil
 }
 
+func Zip(source, target string) error {
+	f, err := os.Create(target)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(f)
+
+	archive := zip.NewWriter(f)
+	defer func(archive *zip.Writer) {
+		err := archive.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(archive)
+
+	info, err := os.Stat(source)
+	if err != nil {
+		return nil
+	}
+
+	var baseDir string
+	if info.IsDir() {
+		baseDir = filepath.Base(source)
+	}
+
+	err = filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		if baseDir != "" {
+			header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, source))
+		}
+
+		if info.IsDir() {
+			header.Name += "/"
+		} else {
+			header.Method = zip.Deflate
+		}
+
+		writer, err := archive.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+
+		defer func(file *os.File) {
+			err := file.Close()
+			if err != nil {
+				log.Fatal(err)
+			}
+		}(file)
+
+		_, err = io.Copy(writer, file)
+
+		return err
+	})
+
+	if err != nil {
+		return err
+	}
+
+	err = os.RemoveAll(source)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return err
+}
+
 func ftpHandler() {
 	factory := &filedriver.FileDriverFactory{
 		RootPath: os.Getenv("PATH_FILES"),
@@ -102,35 +194,42 @@ func filesHandler() {
 	}
 
 	for _, f := range files {
-		full := os.Getenv("PATH_FILES") + f.Name()
-		hash, _ := Sum(full)
-
-		if !Contains(cache, hash) {
-			newHash, _ := Sum(full)
-			if hash != newHash {
-				return
-			}
-
-			cache = append(cache, hash)
-
-			log.Println("↓ |", f.Name(), f.Size(), "bytes")
-
-			chat, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
-			_, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
-				File:     tb.FromDisk(full),
-				FileName: f.Name(),
-			})
+		if f.IsDir() {
+			err := Zip(os.Getenv("PATH_FILES")+f.Name(), os.Getenv("PATH_FILES")+f.Name()+".zip")
 			if err != nil {
 				log.Fatal(err)
 			}
+		} else {
+			full := os.Getenv("PATH_FILES") + f.Name()
+			hash, _ := Sum(full)
 
-			log.Println("↑ |", f.Name(), f.Size(), "bytes")
+			if !Contains(cache, hash) {
+				newHash, _ := Sum(full)
+				if hash != newHash {
+					return
+				}
 
-			if err := os.RemoveAll(full); err != nil {
-				log.Fatal(err)
+				cache = append(cache, hash)
+
+				log.Println("↓ |", f.Name(), f.Size(), "bytes")
+
+				chat, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
+				_, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
+					File:     tb.FromDisk(full),
+					FileName: f.Name(),
+				})
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				log.Println("↑ |", f.Name(), f.Size(), "bytes")
+
+				if err := os.RemoveAll(full); err != nil {
+					log.Fatal(err)
+				}
+
+				Delete(cache, hash)
 			}
-
-			Delete(cache, hash)
 		}
 	}
 }
