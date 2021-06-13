@@ -7,6 +7,7 @@ import (
 	"github.com/goftp/file-driver"
 	"github.com/goftp/server"
 	"github.com/joho/godotenv"
+	"github.com/sger/go-hashdir"
 	tb "gopkg.in/tucnak/telebot.v2"
 	"io"
 	"io/ioutil"
@@ -158,6 +159,27 @@ func Zip(source, target string) error {
 	return err
 }
 
+func IsEmpty(name string) (bool, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return false, err
+	}
+
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(f)
+
+	_, err = f.Readdirnames(1)
+	if err == io.EOF {
+		return true, nil
+	}
+
+	return false, err
+}
+
 func ftpHandler() {
 	factory := &filedriver.FileDriverFactory{
 		RootPath: os.Getenv("PATH_FILES"),
@@ -194,17 +216,35 @@ func filesHandler() {
 	}
 
 	for _, f := range files {
+		full := os.Getenv("PATH_FILES") + f.Name()
+		hash, _ := hashdir.Create(full, "md5")
+		//log.Println("hash", hash)
+
+		time.Sleep(1 * time.Second)
+
 		if f.IsDir() {
+			if is, err := IsEmpty(full); err != nil {
+				log.Fatal(err)
+			} else {
+				if is {
+					return
+				}
+			}
+
+			newHash, _ := hashdir.Create(full, "md5")
+			//log.Println("newHash DIR", newHash)
+			if hash != newHash {
+				return
+			}
+
 			err := Zip(os.Getenv("PATH_FILES")+f.Name(), os.Getenv("PATH_FILES")+f.Name()+".zip")
 			if err != nil {
 				log.Fatal(err)
 			}
 		} else {
-			full := os.Getenv("PATH_FILES") + f.Name()
-			hash, _ := Sum(full)
-
 			if !Contains(cache, hash) {
-				newHash, _ := Sum(full)
+				newHash, _ := hashdir.Create(full, "md5")
+				//log.Println("newHash File", newHash)
 				if hash != newHash {
 					return
 				}
