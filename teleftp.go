@@ -13,64 +13,33 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
 var agent *tb.Bot
 
-func Zip(source, target string) error {
-	f, err := os.Create(target)
+func Archive(source, target string) error {
+	file, err := os.Create(target)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	defer func(f *os.File) {
-		err := f.Close()
+	defer func(file *os.File) {
+		err := file.Close()
 		if err != nil {
 			log.Fatal(err)
 		}
-	}(f)
+	}(file)
 
-	archive := zip.NewWriter(f)
-	defer func(archive *zip.Writer) {
-		err := archive.Close()
+	w := zip.NewWriter(file)
+	defer func(w *zip.Writer) {
+		err := w.Close()
 		if err != nil {
 			log.Fatal(err)
 		}
-	}(archive)
+	}(w)
 
-	info, err := os.Stat(source)
-	if err != nil {
-		return nil
-	}
-
-	var baseDir string
-	if info.IsDir() {
-		baseDir = filepath.Base(source)
-	}
-
-	err = filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-
-		if baseDir != "" {
-			header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, source))
-		}
-
-		if info.IsDir() {
-			header.Name += "/"
-		} else {
-			header.Method = zip.Deflate
-		}
-
-		writer, err := archive.CreateHeader(header)
+	walker := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -91,21 +60,27 @@ func Zip(source, target string) error {
 			}
 		}(file)
 
-		_, err = io.Copy(writer, file)
+		f, err := w.Create(path)
+		if err != nil {
+			return err
+		}
 
-		return err
-	})
+		if _, err = io.Copy(f, file); err != nil {
+			return err
+		}
 
-	if err != nil {
+		return nil
+	}
+
+	if err = filepath.Walk(source, walker); err != nil {
 		return err
 	}
 
-	err = os.RemoveAll(source)
-	if err != nil {
-		log.Fatal(err)
+	if err = os.RemoveAll(source); err != nil {
+		return err
 	}
 
-	return err
+	return nil
 }
 
 func IsEmpty(name string) (bool, error) {
@@ -160,8 +135,6 @@ func filesHandler() {
 			hash, _ := hashdir.Create(fullPath, "md5")
 
 			if f.IsDir() {
-				log.Println("↓ |", f.Name(), f.Size(), "bytes")
-
 				time.Sleep(5 * time.Minute)
 
 				if e, err := IsEmpty(fullPath); err == nil {
@@ -172,27 +145,25 @@ func filesHandler() {
 					log.Fatal(err)
 				}
 
-				newHash, _ := hashdir.Create(fullPath, "md5")
-				if hash != newHash {
+				if newHash, _ := hashdir.Create(fullPath, "md5"); hash != newHash {
 					return
 				}
 
-				err := Zip(os.Getenv("PATH_FILES")+f.Name(), os.Getenv("PATH_FILES")+f.Name()+".zip")
-				if err != nil {
+				log.Println("↓ |", f.Name(), f.Size(), "bytes")
+
+				if err := Archive(fullPath, fullPath+".zip"); err != nil {
 					log.Fatal(err)
 				}
 			} else {
-				newHash, _ := hashdir.Create(fullPath, "md5")
-				if hash != newHash {
+				if newHash, _ := hashdir.Create(fullPath, "md5"); hash != newHash {
 					return
 				}
 
 				chat, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
-				_, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
+				if _, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
 					File:     tb.FromDisk(fullPath),
 					FileName: f.Name(),
-				})
-				if err != nil {
+				}); err != nil {
 					log.Fatal(err)
 				}
 
