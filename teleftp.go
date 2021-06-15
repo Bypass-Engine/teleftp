@@ -5,7 +5,6 @@ import (
 	"github.com/goftp/file-driver"
 	"github.com/goftp/server"
 	"github.com/joho/godotenv"
-	"github.com/sger/go-hashdir"
 	tb "gopkg.in/tucnak/telebot.v2"
 	"io"
 	"io/ioutil"
@@ -13,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -103,6 +103,18 @@ func IsEmpty(name string) (bool, error) {
 	return false, err
 }
 
+func checkBackupProc() bool {
+	matches, _ := filepath.Glob("/proc/*/exe")
+	for _, file := range matches {
+		target, _ := os.Readlink(file)
+		if len(target) > 0 && strings.Contains(target, "/usr/local/fastpanel2/app/fastbackup") {
+			return true
+		}
+	}
+
+	return false
+}
+
 func ftpHandler() {
 	factory := &filedriver.FileDriverFactory{
 		RootPath: os.Getenv("PATH_FILES"),
@@ -132,11 +144,8 @@ func filesHandler() {
 	if files, err := ioutil.ReadDir(os.Getenv("PATH_FILES")); err == nil {
 		for _, f := range files {
 			fullPath := os.Getenv("PATH_FILES") + f.Name()
-			hash, _ := hashdir.Create(fullPath, "md5")
 
 			if f.IsDir() {
-				time.Sleep(5 * time.Minute)
-
 				if e, err := IsEmpty(fullPath); err == nil {
 					if e {
 						return
@@ -145,31 +154,23 @@ func filesHandler() {
 					log.Fatal(err)
 				}
 
-				if newHash, _ := hashdir.Create(fullPath, "md5"); hash != newHash {
-					return
-				}
-
-				log.Println("↓ |", f.Name(), f.Size(), "bytes")
+				log.Println("↓ |", f.Name())
 
 				if err := Archive(fullPath, fullPath+".zip"); err != nil {
 					log.Fatal(err)
 				}
-			} else {
-				if newHash, _ := hashdir.Create(fullPath, "md5"); hash != newHash {
-					return
-				}
 
 				chat, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
 				if _, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
-					File:     tb.FromDisk(fullPath),
-					FileName: f.Name(),
+					File:     tb.FromDisk(fullPath + ".zip"),
+					FileName: f.Name() + ".zip",
 				}); err != nil {
 					log.Fatal(err)
 				}
 
-				log.Println("↑ |", f.Name(), f.Size(), "bytes")
+				log.Println("↑ |", f.Name())
 
-				if err := os.RemoveAll(fullPath); err != nil {
+				if err := os.RemoveAll(fullPath + ".zip"); err != nil {
 					log.Fatal(err)
 				}
 			}
@@ -203,8 +204,15 @@ func main() {
 
 	go agent.Start()
 
+	c := false
 	for {
-		filesHandler()
+		n := checkBackupProc()
+
+		if c && !n {
+			go filesHandler()
+		}
+
+		c = n
 
 		time.Sleep(1 * time.Second)
 	}
