@@ -1,3 +1,7 @@
+// teleftp experimental development for the FASTPANEL® hosting control panel
+// the authors of this software do not encourage you to use it
+// you assume all risks for your Telegram account
+// disclaimer of any obligations, claims, complaints
 package main
 
 import (
