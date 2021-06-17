@@ -14,9 +14,9 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -108,12 +108,8 @@ func IsEmpty(name string) (bool, error) {
 }
 
 func checkBackupProc() bool {
-	matches, _ := filepath.Glob("/proc/*/exe")
-	for _, file := range matches {
-		target, _ := os.Readlink(file)
-		if len(target) > 0 && strings.Contains(target, "/usr/local/fastpanel2/app/fastbackup") {
-			return true
-		}
+	if out, err := exec.Command("sh", "-c", "pidof fastbackup").Output(); err == nil && out != nil {
+		return true
 	}
 
 	return false
