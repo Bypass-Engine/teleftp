@@ -7,20 +7,24 @@ package main
 import (
 	"github.com/goftp/file-driver"
 	"github.com/goftp/server"
-	"github.com/joho/godotenv"
 	"github.com/mholt/archiver"
+	"github.com/pelletier/go-toml"
 	tb "gopkg.in/tucnak/telebot.v2"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	"strconv"
 	"time"
 )
 
-var agent *tb.Bot
+var (
+	ftpUser, ftpPass, ftpHost, tgUrl, tgToken string
+	ftpPort, tgChat                           int64
+	sysPath                                   string
+	agent                                     *tb.Bot
+)
 
-func checkBackupProc() bool {
+func checkProc() bool {
 	if out, err := exec.Command("sh", "-c", "pidof fastbackup").Output(); err == nil && out != nil {
 		return true
 	}
@@ -30,19 +34,18 @@ func checkBackupProc() bool {
 
 func ftpHandler() {
 	factory := &filedriver.FileDriverFactory{
-		RootPath: os.Getenv("PATH_FILES"),
+		RootPath: sysPath,
 		Perm:     server.NewSimplePerm("root", "root"),
 	}
 
-	port, _ := strconv.Atoi(os.Getenv("FTP_PORT"))
 	opts := &server.ServerOpts{
 		Factory: factory,
 		Auth: &server.SimpleAuth{
-			Name:     os.Getenv("FTP_USER"),
-			Password: os.Getenv("FTP_PASS"),
+			Name:     ftpUser,
+			Password: ftpPass,
 		},
-		Hostname: os.Getenv("FTP_HOST"),
-		Port:     port,
+		Hostname: ftpHost,
+		Port:     int(ftpPort),
 		Logger:   new(server.DiscardLogger),
 	}
 
@@ -54,10 +57,10 @@ func ftpHandler() {
 }
 
 func filesHandler() {
-	if files, err := ioutil.ReadDir(os.Getenv("PATH_FILES")); err == nil {
+	if files, err := ioutil.ReadDir(sysPath); err == nil {
 		for _, f := range files {
 			if f.IsDir() {
-				fullPath := os.Getenv("PATH_FILES") + f.Name()
+				fullPath := sysPath + f.Name()
 				fullPathZip := fullPath + ".zip"
 
 				log.Println("↓ |", f.Name())
@@ -66,8 +69,7 @@ func filesHandler() {
 					log.Fatal(err)
 				}
 
-				chat, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
-				if _, err := agent.Send(&tb.Chat{ID: int64(chat)}, &tb.Document{
+				if _, err := agent.Send(&tb.Chat{ID: tgChat}, &tb.Document{
 					File:     tb.FromDisk(fullPathZip),
 					FileName: f.Name() + ".zip",
 				}); err != nil {
@@ -93,37 +95,43 @@ func filesHandler() {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	if _, err := os.Stat(os.Getenv("PATH_FILES")); os.IsNotExist(err) {
-		_ = os.Mkdir(os.Getenv("PATH_FILES"), os.ModeDir)
+	if config, err := toml.LoadFile("config.toml"); err == nil {
+		ftpUser = config.Get("ftp.user").(string)
+		ftpPass = config.Get("ftp.pass").(string)
+		ftpHost = config.Get("ftp.host").(string)
+		ftpPort = config.Get("ftp.port").(int64)
+		tgChat = config.Get("tg.chat").(int64)
+		tgUrl = config.Get("tg.url").(string)
+		tgToken = config.Get("tg.token").(string)
+		sysPath = config.Get("sys.path").(string)
+	} else {
+		log.Fatal(err)
 	}
 
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("No \".env\" file found!")
+	if _, err := os.Stat(sysPath); os.IsNotExist(err) {
+		_ = os.Mkdir(sysPath, os.ModeDir)
 	}
 
 	go ftpHandler()
 
 	var err error
 	if agent, err = tb.NewBot(tb.Settings{
-		URL:    os.Getenv("TELEGRAM_URL"),
-		Token:  os.Getenv("TELEGRAM_TOKEN"),
+		URL:    tgUrl,
+		Token:  tgToken,
 		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 	}); err != nil {
 		log.Fatal(err)
 	}
 
-	go func() {
-		agent.Start()
+	go agent.Start()
 
-		m, _ := strconv.Atoi(os.Getenv("TELEGRAM_CHAT"))
-		if _, err := agent.Send(&tb.Chat{ID: int64(m)}, "[teleftp] FTP is running and listening..."); err != nil {
-			log.Fatal(err)
-		}
-	}()
+	if _, err := agent.Send(&tb.Chat{ID: tgChat}, "[teleftp] FTP is running and listening..."); err != nil {
+		log.Println(err)
+	}
 
 	c := false
 	for {
-		n := checkBackupProc()
+		n := checkProc()
 
 		if c && !n {
 			go filesHandler()

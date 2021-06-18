@@ -9,9 +9,9 @@ require (
 	github.com/goftp/server v0.0.0-20200708154336-f64f7c2d8a42
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/jlaffaye/ftp v0.0.0-20210307004419-5d4190119067 // indirect
-	github.com/joho/godotenv v1.3.0
 	github.com/mholt/archiver v3.1.1+incompatible
 	github.com/nwaples/rardecode v1.1.0 // indirect
+	github.com/pelletier/go-toml v1.9.3
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
 	github.com/stretchr/testify v1.7.0 // indirect
 	github.com/ulikunitz/xz v0.5.10 // indirect

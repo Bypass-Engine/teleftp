@@ -1,0 +1,13 @@
+[ftp]
+user = "admin"
+pass = "admin"
+host = "127.0.0.1"
+port = 22211
+
+[tg]
+chat = 1234567890
+url = "http://127.0.0.1:8081" # https://api.telegram.org (<50MB) not recommended
+token = "1234567890:abc"
+
+[sys]
+path = "./temp/"
