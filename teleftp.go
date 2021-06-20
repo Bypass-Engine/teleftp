@@ -21,6 +21,7 @@ import (
 
 var (
 	agent                                              *tb.Bot
+	sysClear                                           bool
 	ftpPort, tgChat                                    int64
 	ftpUser, ftpPass, ftpHost, tgUrl, tgToken, sysPath string
 )
@@ -83,8 +84,10 @@ func filesHandler() {
 					log.Fatal(err)
 				}
 
-				if err := os.RemoveAll(fullPathZip); err != nil {
-					log.Fatal(err)
+				if sysClear {
+					if err := os.RemoveAll(fullPathZip); err != nil {
+						log.Fatal(err)
+					}
 				}
 			}
 		}
@@ -105,6 +108,7 @@ func listen() error {
 		tgUrl = config.Get("tg.url").(string)
 		tgToken = config.Get("tg.token").(string)
 		sysPath = config.Get("sys.path").(string)
+		sysClear = config.Get("sys.clear").(bool)
 	} else {
 		return err
 	}
