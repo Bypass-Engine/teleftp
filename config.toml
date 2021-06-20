@@ -1,13 +1,13 @@
 [ftp]
 user = "admin"
 pass = "admin"
-host = "127.0.0.1"
+host = "127.0.0.1" # localhost by default, 0.0.0.0 remote connection by server IP
 port = 22211
 
 [tg]
 chat = 1234567890
 url = "http://127.0.0.1:8081" # https://api.telegram.org (<50MB) not recommended
-token = "1234567890:abc"
+token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
 [sys]
 path = "./temp/"
