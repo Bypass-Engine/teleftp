@@ -12,16 +12,17 @@ import (
 	tb "gopkg.in/tucnak/telebot.v2"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
 var (
-	ftpUser, ftpPass, ftpHost, tgUrl, tgToken string
-	ftpPort, tgChat                           int64
-	sysPath                                   string
-	agent                                     *tb.Bot
+	agent                                              *tb.Bot
+	ftpPort, tgChat                                    int64
+	ftpUser, ftpPass, ftpHost, tgUrl, tgToken, sysPath string
 )
 
 func checkProc() bool {
@@ -92,7 +93,7 @@ func filesHandler() {
 	}
 }
 
-func main() {
+func listen() error {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	if config, err := toml.LoadFile("config.toml"); err == nil {
@@ -105,7 +106,7 @@ func main() {
 		tgToken = config.Get("tg.token").(string)
 		sysPath = config.Get("sys.path").(string)
 	} else {
-		log.Fatal(err)
+		return err
 	}
 
 	if _, err := os.Stat(sysPath); os.IsNotExist(err) {
@@ -114,13 +115,19 @@ func main() {
 
 	go ftpHandler()
 
+	if !strings.Contains(tgUrl, "api.telegram.org") {
+		if _, err := http.Get("https://api.telegram.org/bot" + tgToken + "/logOut"); err != nil {
+			log.Println(err)
+		} // https://core.telegram.org/bots/api#logout
+	} // If you changed the local server to the official one, you have to wait ~10 minutes after the last (logOut).
+
 	var err error
 	if agent, err = tb.NewBot(tb.Settings{
 		URL:    tgUrl,
 		Token:  tgToken,
 		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 	}); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	go agent.Start()
@@ -140,5 +147,11 @@ func main() {
 		c = n
 
 		time.Sleep(1 * time.Second)
+	}
+}
+
+func main() {
+	if err := listen(); err != nil {
+		log.Fatal(err)
 	}
 }
