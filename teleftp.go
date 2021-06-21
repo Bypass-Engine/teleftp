@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -133,6 +134,10 @@ func listen() error {
 	}); err != nil {
 		return err
 	}
+
+	agent.Handle("/id", func(m *tb.Message) {
+		_, _ = agent.Send(m.Chat, strconv.Itoa(int(m.Chat.ID)))
+	})
 
 	go agent.Start()
 
