@@ -20,11 +20,30 @@ import (
 	"time"
 )
 
+type FTP struct {
+	Port             int
+	User, Pass, Host string
+}
+
+type Tg struct {
+	Chat       int64
+	Url, Token string
+}
+
+type Sys struct {
+	Path  string
+	Clear bool
+}
+
+type Config struct {
+	FTP FTP
+	Tg  Tg
+	Sys Sys
+}
+
 var (
-	agent                                              *tb.Bot
-	sysClear                                           bool
-	ftpPort, tgChat                                    int64
-	ftpUser, ftpPass, ftpHost, tgUrl, tgToken, sysPath string
+	agent *tb.Bot
+	cfg   = Config{}
 )
 
 func checkProc() bool {
@@ -37,18 +56,18 @@ func checkProc() bool {
 
 func ftpHandler() {
 	factory := &filedriver.FileDriverFactory{
-		RootPath: sysPath,
+		RootPath: cfg.Sys.Path,
 		Perm:     server.NewSimplePerm("root", "root"),
 	}
 
 	opts := &server.ServerOpts{
 		Factory: factory,
 		Auth: &server.SimpleAuth{
-			Name:     ftpUser,
-			Password: ftpPass,
+			Name:     cfg.FTP.User,
+			Password: cfg.FTP.Pass,
 		},
-		Hostname: ftpHost,
-		Port:     int(ftpPort),
+		Hostname: cfg.FTP.Host,
+		Port:     cfg.FTP.Port,
 		Logger:   new(server.DiscardLogger),
 	}
 
@@ -60,10 +79,10 @@ func ftpHandler() {
 }
 
 func filesHandler() {
-	if files, err := ioutil.ReadDir(sysPath); err == nil {
+	if files, err := ioutil.ReadDir(cfg.Sys.Path); err == nil {
 		for _, f := range files {
 			if f.IsDir() {
-				fullPath := sysPath + f.Name()
+				fullPath := cfg.Sys.Path + f.Name()
 				fullPathZip := fullPath + ".zip"
 
 				log.Println("↓ |", f.Name())
@@ -72,7 +91,7 @@ func filesHandler() {
 					log.Fatal(err)
 				}
 
-				if _, err := agent.Send(&tb.Chat{ID: tgChat}, &tb.Document{
+				if _, err := agent.Send(&tb.Chat{ID: cfg.Tg.Chat}, &tb.Document{
 					File:     tb.FromDisk(fullPathZip),
 					FileName: f.Name() + ".zip",
 				}); err != nil {
@@ -85,7 +104,7 @@ func filesHandler() {
 					log.Fatal(err)
 				}
 
-				if sysClear {
+				if cfg.Sys.Clear {
 					if err := os.RemoveAll(fullPathZip); err != nil {
 						log.Fatal(err)
 					}
@@ -100,36 +119,28 @@ func filesHandler() {
 func listen() error {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	if config, err := toml.LoadFile("config.toml"); err == nil {
-		ftpUser = config.Get("ftp.user").(string)
-		ftpPass = config.Get("ftp.pass").(string)
-		ftpHost = config.Get("ftp.host").(string)
-		ftpPort = config.Get("ftp.port").(int64)
-		tgChat = config.Get("tg.chat").(int64)
-		tgUrl = config.Get("tg.url").(string)
-		tgToken = config.Get("tg.token").(string)
-		sysPath = config.Get("sys.path").(string)
-		sysClear = config.Get("sys.clear").(bool)
+	if r, err := ioutil.ReadFile("config.toml"); err == nil {
+		_ = toml.Unmarshal(r, &cfg)
 	} else {
 		return err
 	}
 
-	if _, err := os.Stat(sysPath); os.IsNotExist(err) {
-		_ = os.Mkdir(sysPath, os.ModeDir)
+	if _, err := os.Stat(cfg.Sys.Path); os.IsNotExist(err) {
+		_ = os.Mkdir(cfg.Sys.Path, os.ModeDir)
 	}
 
 	go ftpHandler()
 
-	if !strings.Contains(tgUrl, "api.telegram.org") {
-		if _, err := http.Get("https://api.telegram.org/bot" + tgToken + "/logOut"); err != nil {
+	if !strings.Contains(cfg.Tg.Url, "api.telegram.org") {
+		if _, err := http.Get("https://api.telegram.org/bot" + cfg.Tg.Token + "/logOut"); err != nil {
 			log.Println(err)
 		} // https://core.telegram.org/bots/api#logout
 	} // If you changed the local server to the official one, you have to wait ~10 minutes after the last (logOut).
 
 	var err error
 	if agent, err = tb.NewBot(tb.Settings{
-		URL:    tgUrl,
-		Token:  tgToken,
+		URL:    cfg.Tg.Url,
+		Token:  cfg.Tg.Token,
 		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 	}); err != nil {
 		return err
@@ -141,7 +152,7 @@ func listen() error {
 
 	go agent.Start()
 
-	if _, err := agent.Send(&tb.Chat{ID: tgChat}, "[teleftp] FTP is running and listening..."); err != nil {
+	if _, err := agent.Send(&tb.Chat{ID: cfg.Tg.Chat}, "[teleftp] FTP is running and listening..."); err != nil {
 		log.Println(err)
 	}
 
