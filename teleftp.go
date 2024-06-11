@@ -10,7 +10,6 @@ import (
 	"github.com/mholt/archiver"
 	"github.com/pelletier/go-toml"
 	tb "gopkg.in/tucnak/telebot.v2"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +17,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
+
+var (
+	agent *tb.Bot
+	cfg   = Config{}
 )
 
 type FTP struct {
@@ -40,11 +44,6 @@ type Config struct {
 	Tg  Tg
 	Sys Sys
 }
-
-var (
-	agent *tb.Bot
-	cfg   = Config{}
-)
 
 func checkProc() bool {
 	if out, err := exec.Command("sh", "-c", "pidof fastbackup").Output(); err == nil && out != nil {
@@ -79,7 +78,7 @@ func ftpHandler() {
 }
 
 func filesHandler() {
-	if files, err := ioutil.ReadDir(cfg.Sys.Path); err == nil {
+	if files, err := os.ReadDir(cfg.Sys.Path); err == nil {
 		for _, f := range files {
 			if f.IsDir() {
 				fullPath := cfg.Sys.Path + f.Name()
@@ -119,7 +118,7 @@ func filesHandler() {
 func listen() error {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	if r, err := ioutil.ReadFile("config.toml"); err == nil {
+	if r, err := os.ReadFile("config.toml"); err == nil {
 		_ = toml.Unmarshal(r, &cfg)
 	} else {
 		return err
